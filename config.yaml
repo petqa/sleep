@@ -1,5 +1,5 @@
 mode: rule
-ipv6: false
+ipv6: true
 log-level: info
 allow-lan: true
 port: 7891
