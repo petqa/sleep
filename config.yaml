@@ -1,0 +1,205 @@
+mode: rule
+ipv6: false
+log-level: info
+allow-lan: true
+port: 7891
+socks-port: 7892
+redir-port: 7893
+tproxy-port: 7894
+unified-delay: true
+tcp-concurrent: true
+keep-alive-idle: 15
+keep-alive-interval: 15
+geodata-mode: true
+geo-auto-update: true
+geo-update-interval: 72
+
+external-controller: 0.0.0.0:9090
+external-ui: ./zashboard
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
+
+routing-mark: 2
+
+profile:
+  store-selected: true
+
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  force-dns-mapping: true
+  sniff:
+    HTTP:
+    TLS:
+    QUIC:
+
+dns:
+  enable: false
+
+proxy-providers:
+  pqsubscribe:
+    type: http
+    url: https://ваша_ссылка_подписки
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 300
+      timeout: 5000
+      lazy: true
+      expected-status: 204
+
+proxy-groups:
+  - name: MAIN-MODE
+    type: select
+    proxies:
+    - PROXY-AUTO
+    - PROXY-MANUAL
+    - DIRECT
+
+  - name: PROXY-AUTO
+    type: fallback
+    proxies:
+      - PROXY-LOAD-BALANCE
+      - PROXY-FAILOVER
+      - DIRECT
+    url: http://cp.cloudflare.com/generate_204
+    expected-status: 204
+    interval: 300
+    tolerance: 150
+    lazy: true
+
+  - name: PROXY-LOAD-BALANCE
+    type: load-balance
+    use:
+      - pqsubscribe
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+    strategy: consistent-hashing
+    expected-status: 204
+    tolerance: 150
+    lazy: true
+
+  - name: PROXY-FAILOVER
+    type: fallback
+    use:
+      - pqsubscribe
+    url: http://cp.cloudflare.com/generate_204
+    expected-status: 204
+    interval: 300
+    tolerance: 150
+    lazy: true
+
+  - name: PROXY-MANUAL
+    type: select
+    lazy: true
+    use:
+      - pqsubscribe
+
+  - name: GLOBAL
+    type: select
+    hidden: true
+    proxies:
+      - PROXY-AUTO
+      - PROXY-MANUAL
+      - PROXY-LOAD-BALANCE
+      - PROXY-FAILOVER
+      - DIRECT
+
+rule-providers:
+  ru-bundle:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/ru-bundle/rule.mrs
+    path: ./ru-bundle/rule.mrs
+    interval: 86400
+  refilter_domains:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/domain-rule.mrs
+    path: ./re-filter/domain-rule.mrs
+    interval: 86400
+  refilter_ipsum:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/ip-rule.mrs
+    path: ./re-filter/ip-rule.mrs
+    interval: 86400
+  torrent-trackers:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/torrent-trackers.mrs
+    path: ./rule-sets/torrent-trackers.mrs
+    interval: 86400
+  torrent-websites:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/torrent-websites.mrs
+    path: ./rule-sets/torrent-websites.mrs
+    interval: 86400
+  torrent-clients:
+    type: http
+    behavior: classical
+    format: yaml
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/torrent-clients.yaml
+    path: ./rule-sets/torrent-clients.yaml
+    interval: 86400
+  discord-voice-ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/discord-voice-ip-list.mrs
+    path: ./other/discord-voice-ips.mrs
+    interval: 86400
+
+rules:
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+  - DOMAIN-SUFFIX,local,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+
+  - DOMAIN-KEYWORD,huuli.art,DIRECT
+  - DOMAIN-KEYWORD,petqa.ru,DIRECT
+  - DOMAIN-KEYWORD,cp.cloudflare.com,DIRECT
+
+  - RULE-SET,torrent-clients,DIRECT
+  - RULE-SET,torrent-trackers,DIRECT
+  - RULE-SET,torrent-websites,MAIN-MODE
+
+  - DOMAIN,lampa.byskaz.ru,MAIN-MODE
+  - DOMAIN,ip.flant.ru,MAIN-MODE
+
+  - DOMAIN-KEYWORD,trae,MAIN-MODE
+  - DOMAIN-KEYWORD,fellow,MAIN-MODE
+  - DOMAIN-KEYWORD,docker,MAIN-MODE
+  - DOMAIN-KEYWORD,discord,MAIN-MODE
+  - DOMAIN-KEYWORD,redhat,MAIN-MODE
+  - DOMAIN-KEYWORD,openshift,MAIN-MODE
+  - DOMAIN-KEYWORD,debian.org,MAIN-MODE
+  - DOMAIN-KEYWORD,aquasec.com,MAIN-MODE
+  - DOMAIN,sites.google.com,DIRECT
+  - DOMAIN-SUFFIX,dev,MAIN-MODE
+  - DOMAIN-SUFFIX,org,MAIN-MODE
+  - DOMAIN-SUFFIX,io,MAIN-MODE
+  - DOMAIN-SUFFIX,ai,MAIN-MODE
+  - DOMAIN-SUFFIX,to,MAIN-MODE
+  - DOMAIN-SUFFIX,one,MAIN-MODE
+  - DOMAIN-SUFFIX,sh,MAIN-MODE
+  - DOMAIN-SUFFIX,g2.com,MAIN-MODE
+  - DOMAIN,cloudflare-ech.com,MAIN-MODE
+  - DOMAIN-SUFFIX,tradelink.pro,MAIN-MODE
+  - RULE-SET,ru-bundle,MAIN-MODE
+  - RULE-SET,refilter_domains,MAIN-MODE
+  - RULE-SET,refilter_ipsum,MAIN-MODE
+  - RULE-SET,discord-voice-ips,MAIN-MODE
+
+  - MATCH,DIRECT
