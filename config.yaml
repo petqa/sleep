@@ -2,17 +2,20 @@ mode: rule
 ipv6: true
 log-level: info
 allow-lan: true
+mixed-port: 7890
 port: 7891
 socks-port: 7892
 redir-port: 7893
 tproxy-port: 7894
 unified-delay: true
 tcp-concurrent: true
-keep-alive-idle: 15
-keep-alive-interval: 15
+keep-alive-idle: 600
+keep-alive-interval: 30
+global-client-fingerprint: chrome
 geodata-mode: true
 geo-auto-update: true
 geo-update-interval: 72
+find-process-mode: strict
 
 external-controller: 0.0.0.0:9090
 external-ui: ./zashboard
@@ -22,15 +25,21 @@ routing-mark: 2
 
 profile:
   store-selected: true
+  store-fake-ip: false
 
 sniffer:
   enable: true
   parse-pure-ip: true
   force-dns-mapping: true
+  override-destination: false
   sniff:
     HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
     TLS:
+      ports: [443, 8443]
     QUIC:
+      ports: [443, 8443]
 
 dns:
   enable: false
@@ -44,10 +53,11 @@ proxy-providers:
     health-check:
       enable: true
       url: http://cp.cloudflare.com/generate_204
-      interval: 300
-      timeout: 5000
+      interval: 180
+      timeout: 3000
       lazy: true
       expected-status: 204
+      max-failed-times: 3
 
 proxy-groups:
   - name: MAIN-MODE
@@ -65,20 +75,22 @@ proxy-groups:
       - DIRECT
     url: http://cp.cloudflare.com/generate_204
     expected-status: 204
-    interval: 300
-    tolerance: 150
+    interval: 180
+    tolerance: 100
     lazy: true
+    max-failed-times: 3
 
   - name: PROXY-LOAD-BALANCE
     type: load-balance
     use:
       - pqsubscribe
     url: http://cp.cloudflare.com/generate_204
-    interval: 300
+    interval: 180
     strategy: consistent-hashing
     expected-status: 204
-    tolerance: 150
+    tolerance: 100
     lazy: true
+    max-failed-times: 3
 
   - name: PROXY-FAILOVER
     type: fallback
@@ -86,9 +98,10 @@ proxy-groups:
       - pqsubscribe
     url: http://cp.cloudflare.com/generate_204
     expected-status: 204
-    interval: 300
-    tolerance: 150
+    interval: 180
+    tolerance: 100
     lazy: true
+    max-failed-times: 3
 
   - name: PROXY-MANUAL
     type: select
@@ -158,7 +171,10 @@ rule-providers:
     interval: 86400
 
 rules:
+  # Блокировка QUIC
   - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+
+  # Локальные адреса IPv4
   - DOMAIN-SUFFIX,local,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
@@ -166,6 +182,12 @@ rules:
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
   - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
   - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+
+  # Локальные адреса IPv6
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - IP-CIDR6,fd00::/8,DIRECT,no-resolve
 
   - DOMAIN-KEYWORD,huuli.art,DIRECT
   - DOMAIN-KEYWORD,petqa.ru,DIRECT
@@ -178,15 +200,62 @@ rules:
   - DOMAIN,lampa.byskaz.ru,MAIN-MODE
   - DOMAIN,ip.flant.ru,MAIN-MODE
 
-  - DOMAIN-KEYWORD,trae,MAIN-MODE
-  - DOMAIN-KEYWORD,fellow,MAIN-MODE
+  # Dev и IT сервисы
+  - DOMAIN-KEYWORD,github,MAIN-MODE
+  - DOMAIN-KEYWORD,gitlab,MAIN-MODE
+  - DOMAIN-KEYWORD,stackoverflow,MAIN-MODE
+  - DOMAIN-KEYWORD,npm,MAIN-MODE
   - DOMAIN-KEYWORD,docker,MAIN-MODE
-  - DOMAIN-KEYWORD,discord,MAIN-MODE
+  - DOMAIN-KEYWORD,kubernetes,MAIN-MODE
   - DOMAIN-KEYWORD,redhat,MAIN-MODE
   - DOMAIN-KEYWORD,openshift,MAIN-MODE
-  - DOMAIN-KEYWORD,debian.org,MAIN-MODE
-  - DOMAIN-KEYWORD,aquasec.com,MAIN-MODE
+  - DOMAIN-KEYWORD,debian,MAIN-MODE
+  - DOMAIN-KEYWORD,ubuntu,MAIN-MODE
+  - DOMAIN-KEYWORD,terraform,MAIN-MODE
+  - DOMAIN-KEYWORD,ansible,MAIN-MODE
+  - DOMAIN-KEYWORD,jenkins,MAIN-MODE
+  - DOMAIN-KEYWORD,gradle,MAIN-MODE
+  - DOMAIN-KEYWORD,maven,MAIN-MODE
+  - DOMAIN-KEYWORD,aquasec,MAIN-MODE
+  - DOMAIN-KEYWORD,trae,MAIN-MODE
+
+  # Social и коммуникация
+  - DOMAIN-KEYWORD,discord,MAIN-MODE
+  - DOMAIN-KEYWORD,slack,MAIN-MODE
+  - DOMAIN-KEYWORD,telegram,MAIN-MODE
+  - DOMAIN-KEYWORD,twitter,MAIN-MODE
+  - DOMAIN-KEYWORD,facebook,MAIN-MODE
+  - DOMAIN-KEYWORD,instagram,MAIN-MODE
+  - DOMAIN-KEYWORD,reddit,MAIN-MODE
+  - DOMAIN-KEYWORD,linkedin,MAIN-MODE
+  - DOMAIN-KEYWORD,medium,MAIN-MODE
+
+  # Cloud провайдеры
+  - DOMAIN-KEYWORD,aws,MAIN-MODE
+  - DOMAIN-KEYWORD,azure,MAIN-MODE
+  - DOMAIN-KEYWORD,digitalocean,MAIN-MODE
+  - DOMAIN-KEYWORD,linode,MAIN-MODE
+  - DOMAIN-KEYWORD,vultr,MAIN-MODE
+  - DOMAIN-KEYWORD,hetzner,MAIN-MODE
+
+  # AI сервисы
+  - DOMAIN-KEYWORD,openai,MAIN-MODE
+  - DOMAIN-KEYWORD,anthropic,MAIN-MODE
+  - DOMAIN-KEYWORD,claude,MAIN-MODE
+  - DOMAIN-KEYWORD,chatgpt,MAIN-MODE
+  - DOMAIN-KEYWORD,midjourney,MAIN-MODE
+  - DOMAIN-KEYWORD,huggingface,MAIN-MODE
+
+  # Другое
+  - DOMAIN-KEYWORD,fellow,MAIN-MODE
+  - DOMAIN-KEYWORD,notion,MAIN-MODE
+  - DOMAIN-KEYWORD,spotify,MAIN-MODE
+  - DOMAIN-KEYWORD,netflix,MAIN-MODE
+  - DOMAIN-KEYWORD,youtube,MAIN-MODE
+  - DOMAIN-KEYWORD,twitch,MAIN-MODE
   - DOMAIN,sites.google.com,DIRECT
+
+  # Широкие правила для зарубежных TLD
   - DOMAIN-SUFFIX,dev,MAIN-MODE
   - DOMAIN-SUFFIX,org,MAIN-MODE
   - DOMAIN-SUFFIX,io,MAIN-MODE
@@ -194,6 +263,58 @@ rules:
   - DOMAIN-SUFFIX,to,MAIN-MODE
   - DOMAIN-SUFFIX,one,MAIN-MODE
   - DOMAIN-SUFFIX,sh,MAIN-MODE
+  - DOMAIN-SUFFIX,app,MAIN-MODE
+  - DOMAIN-SUFFIX,net,MAIN-MODE
+  - DOMAIN-SUFFIX,cloud,MAIN-MODE
+  - DOMAIN-SUFFIX,tech,MAIN-MODE
+  - DOMAIN-SUFFIX,me,MAIN-MODE
+  - DOMAIN-SUFFIX,xyz,MAIN-MODE
+  - DOMAIN-SUFFIX,tv,MAIN-MODE
+  - DOMAIN-SUFFIX,gg,MAIN-MODE
+  - DOMAIN-SUFFIX,cc,MAIN-MODE
+  - DOMAIN-SUFFIX,co,MAIN-MODE
+  - DOMAIN-SUFFIX,uk,MAIN-MODE
+  - DOMAIN-SUFFIX,eu,MAIN-MODE
+  - DOMAIN-SUFFIX,us,MAIN-MODE
+  - DOMAIN-SUFFIX,fr,MAIN-MODE
+  - DOMAIN-SUFFIX,de,MAIN-MODE
+  - DOMAIN-SUFFIX,nl,MAIN-MODE
+  - DOMAIN-SUFFIX,se,MAIN-MODE
+  - DOMAIN-SUFFIX,no,MAIN-MODE
+  - DOMAIN-SUFFIX,fi,MAIN-MODE
+  - DOMAIN-SUFFIX,dk,MAIN-MODE
+  - DOMAIN-SUFFIX,pl,MAIN-MODE
+  - DOMAIN-SUFFIX,it,MAIN-MODE
+  - DOMAIN-SUFFIX,es,MAIN-MODE
+  - DOMAIN-SUFFIX,ch,MAIN-MODE
+  - DOMAIN-SUFFIX,at,MAIN-MODE
+  - DOMAIN-SUFFIX,be,MAIN-MODE
+  - DOMAIN-SUFFIX,ca,MAIN-MODE
+  - DOMAIN-SUFFIX,au,MAIN-MODE
+  - DOMAIN-SUFFIX,nz,MAIN-MODE
+  - DOMAIN-SUFFIX,jp,MAIN-MODE
+  - DOMAIN-SUFFIX,kr,MAIN-MODE
+  - DOMAIN-SUFFIX,sg,MAIN-MODE
+  - DOMAIN-SUFFIX,hk,MAIN-MODE
+  - DOMAIN-SUFFIX,tw,MAIN-MODE
+  - DOMAIN-SUFFIX,info,MAIN-MODE
+  - DOMAIN-SUFFIX,biz,MAIN-MODE
+  - DOMAIN-SUFFIX,pro,MAIN-MODE
+  - DOMAIN-SUFFIX,online,MAIN-MODE
+  - DOMAIN-SUFFIX,site,MAIN-MODE
+  - DOMAIN-SUFFIX,store,MAIN-MODE
+  - DOMAIN-SUFFIX,blog,MAIN-MODE
+  - DOMAIN-SUFFIX,news,MAIN-MODE
+  - DOMAIN-SUFFIX,wiki,MAIN-MODE
+  - DOMAIN-SUFFIX,zone,MAIN-MODE
+  - DOMAIN-SUFFIX,live,MAIN-MODE
+  - DOMAIN-SUFFIX,world,MAIN-MODE
+  - DOMAIN-SUFFIX,icu,MAIN-MODE
+  - DOMAIN-SUFFIX,fun,MAIN-MODE
+  - DOMAIN-SUFFIX,top,MAIN-MODE
+  - DOMAIN-SUFFIX,vip,MAIN-MODE
+
+  # Специфичные домены
   - DOMAIN-SUFFIX,g2.com,MAIN-MODE
   - DOMAIN,cloudflare-ech.com,MAIN-MODE
   - DOMAIN-SUFFIX,tradelink.pro,MAIN-MODE
