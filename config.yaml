@@ -6,10 +6,10 @@ port: 7891
 socks-port: 7892
 redir-port: 7893
 tproxy-port: 7894
-unified-delay: true
+unified-delay: false
 tcp-concurrent: true
-keep-alive-idle: 15
-keep-alive-interval: 15
+keep-alive-idle: 30
+keep-alive-interval: 30
 geodata-mode: true
 geo-auto-update: true
 geo-update-interval: 72
@@ -18,19 +18,24 @@ external-controller: 0.0.0.0:9090
 external-ui: ./zashboard
 external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-cdn-fonts.zip"
 
-routing-mark: 2
-
 profile:
   store-selected: true
+  store-fake-ip: true
 
 sniffer:
   enable: true
-  parse-pure-ip: true
   force-dns-mapping: true
+  parse-pure-ip: true
   sniff:
     HTTP:
+      ports:
+        - 80
+        - 8080-8880
+      override-destination: true
     TLS:
-    QUIC:
+      ports:
+        - 443
+        - 8443
 
 dns:
   enable: false
@@ -107,6 +112,20 @@ proxy-groups:
       - DIRECT
 
 rule-providers:
+  telegram_ips:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    interval: 86400
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/telegram.mrs
+    path: ./rule-sets/telegram_ips.mrs
+  telegram_domains:
+    type: http
+    behavior: domain
+    format: mrs
+    interval: 86400
+    url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/telegram.mrs
+    path: ./rule-sets/telegram_domains.mrs
   ru-bundle:
     type: http
     behavior: domain
@@ -197,6 +216,8 @@ rules:
   - DOMAIN-SUFFIX,g2.com,MAIN-MODE
   - DOMAIN,cloudflare-ech.com,MAIN-MODE
   - DOMAIN-SUFFIX,tradelink.pro,MAIN-MODE
+
+  - OR,((RULE-SET,telegram_ips),(RULE-SET,telegram_domains)),MAIN-MODE
   - RULE-SET,ru-bundle,MAIN-MODE
   - RULE-SET,refilter_domains,MAIN-MODE
   - RULE-SET,refilter_ipsum,MAIN-MODE
