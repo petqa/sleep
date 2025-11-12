@@ -181,6 +181,7 @@ rule-providers:
 
 rules:
   - AND,((NETWORK,UDP),(DST-PORT,443)),MAIN-MODE
+  - DOMAIN-SUFFIX,local,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
@@ -205,9 +206,9 @@ rules:
   - DOMAIN-KEYWORD,discord,MAIN-MODE
   - DOMAIN-KEYWORD,redhat,MAIN-MODE
   - DOMAIN-KEYWORD,openshift,MAIN-MODE
-  - DOMAIN-KEYWORD,debian.org,MAIN-MODE
-  - DOMAIN-KEYWORD,aquasec.com,MAIN-MODE
+
   - DOMAIN,sites.google.com,DIRECT
+
   - DOMAIN-SUFFIX,dev,MAIN-MODE
   - DOMAIN-SUFFIX,org,MAIN-MODE
   - DOMAIN-SUFFIX,io,MAIN-MODE
@@ -215,9 +216,7 @@ rules:
   - DOMAIN-SUFFIX,to,MAIN-MODE
   - DOMAIN-SUFFIX,one,MAIN-MODE
   - DOMAIN-SUFFIX,sh,MAIN-MODE
-  - DOMAIN-SUFFIX,g2.com,MAIN-MODE
-  - DOMAIN,cloudflare-ech.com,MAIN-MODE
-  - DOMAIN-SUFFIX,tradelink.pro,MAIN-MODE
+  - DOMAIN-SUFFIX,pro,MAIN-MODE
 
   - OR,((RULE-SET,telegram_ips),(RULE-SET,telegram_domains)),MAIN-MODE
   - RULE-SET,ru-bundle,MAIN-MODE
