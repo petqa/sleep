@@ -180,8 +180,7 @@ rule-providers:
     interval: 86400
 
 rules:
-  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
-  - DOMAIN-SUFFIX,local,DIRECT
+  - AND,((NETWORK,UDP),(DST-PORT,443)),MAIN-MODE
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
