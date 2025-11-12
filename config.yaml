@@ -73,6 +73,7 @@ proxy-groups:
     interval: 300
     tolerance: 150
     lazy: true
+    hidden: true
 
   - name: PROXY-LOAD-BALANCE
     type: load-balance
@@ -84,6 +85,7 @@ proxy-groups:
     expected-status: 204
     tolerance: 150
     lazy: true
+    hidden: true
 
   - name: PROXY-FAILOVER
     type: fallback
@@ -94,6 +96,7 @@ proxy-groups:
     interval: 300
     tolerance: 150
     lazy: true
+    hidden: true
 
   - name: PROXY-MANUAL
     type: select
