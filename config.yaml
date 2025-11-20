@@ -20,22 +20,15 @@ external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/downloa
 
 profile:
   store-selected: true
-  store-fake-ip: true
 
 sniffer:
   enable: true
-  force-dns-mapping: true
   parse-pure-ip: true
+  force-dns-mapping: true
   sniff:
     HTTP:
-      ports:
-        - 80
-        - 8080-8880
-      override-destination: true
     TLS:
-      ports:
-        - 443
-        - 8443
+    QUIC:
 
 dns:
   enable: false
@@ -217,6 +210,7 @@ rules:
   - DOMAIN-SUFFIX,one,MAIN-MODE
   - DOMAIN-SUFFIX,sh,MAIN-MODE
   - DOMAIN-SUFFIX,pro,MAIN-MODE
+  - DOMAIN-SUFFIX,app,MAIN-MODE
 
   - OR,((RULE-SET,telegram_ips),(RULE-SET,telegram_domains)),MAIN-MODE
   - RULE-SET,ru-bundle,MAIN-MODE
