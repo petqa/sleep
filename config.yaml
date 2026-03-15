@@ -1,22 +1,42 @@
-log-level: silent
+### ═══════════════════════════════════════════════
+###  MIHOMO — ФИНАЛЬНЫЙ КОНФИГ (РОУТЕР)
+###  Защита от бага "все серверы мертвы":
+###    • BALANCE/BEST содержат DIRECT как fallback
+###    • health-check: lazy: false, interval: 120
+###    • tolerance: 200 — не дёргаться при кратких сбоях
+### ═══════════════════════════════════════════════
+
+log-level: warning
 allow-lan: true
 redir-port: 5000
 tproxy-port: 5001
 ipv6: true
 mode: rule
+unified-delay: true
+tcp-concurrent: true
+disable-keep-alive: false
+keep-alive-idle: 600
+keep-alive-interval: 15
+find-process-mode: off
+geodata-mode: false
+geo-auto-update: false
+global-client-fingerprint: chrome
 external-controller: 0.0.0.0:9090
-external-ui: zashboard
-external-ui-url: https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
-profile: { store-selected: true }
-geo-auto-update: true
-geo-update-interval: 72
+external-ui: ui
+external-ui-url: "https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
+profile:
+  store-selected: true
+  store-fake-ip: true
 
 sniffer:
   enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
   sniff:
     HTTP:
+      ports: [80, 8080-8880]
     TLS:
-    QUIC:
+      ports: [443, 8443]
 
 anchors:
   a1: &domain { type: http, format: mrs, behavior: domain, interval: 86400 }
@@ -25,81 +45,107 @@ anchors:
   a4: &inline { type: inline, behavior: classical }
 
 dns:
-  enable: false
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: true
+  cache-algorithm: arc
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "+.local"
+    - "+.stun.*.*"
+    - "+.stun.*.*.*"
+    - "+.stun.*.*.*.*"
+    - "*.msftconnecttest.com"
+    - "*.msftncsi.com"
+    - "+.srv.nintendo.net"
+    - "+.stun.playstation.net"
+    - "+.xboxlive.com"
+    - "+.pool.ntp.org"
+    - "localhost.ptlogin2.qq.com"
+  default-nameserver:
+    - 8.8.8.8
+    - 1.1.1.1
+  proxy-server-nameserver:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
+  nameserver:
+    - https://dns.petqa.ru/dns-query
 
 proxy-providers:
   pqsubscribe:
     type: http
-    url: https://ваша_ссылка_подписки
+    url: https://subqqeerr.petqa.ru/secret
     interval: 3600
     proxy: DIRECT
     health-check:
       enable: true
       url: http://cp.cloudflare.com/generate_204
-      interval: 300
-      timeout: 5000
-      lazy: true
       expected-status: 204
+      interval: 120
+      timeout: 3000
+      lazy: false
+
+### ═══════════════════════════════════════════════
+###  PROXY GROUPS
+###
+###  Структура:
+###    PROXY (select) ──► BALANCE ──► прокси + DIRECT (fallback при баге)
+###                   ──► BEST    ──► прокси + DIRECT (fallback при баге)
+###                   ──► MANUAL  ──► ручной выбор
+###                   ──► DIRECT
+###
+###  QUIC (hidden) ──► REJECT (блокировка UDP/443 по умолчанию)
+###                ──► PASS
+###
+###  Защита от бага "все серверы мертвы":
+###    BALANCE и BEST включают DIRECT в конце списка.
+###    Если mihomo ошибочно считает все прокси мёртвыми,
+###    трафик пойдёт напрямую, а не в чёрную дыру.
+### ═══════════════════════════════════════════════
 
 proxy-groups:
-  - name: MAIN-MODE
+  - name: PROXY
     type: select
     proxies:
-    - PROXY-AUTO
-    - PROXY-MANUAL
-    - DIRECT
-
-  - name: PROXY-AUTO
-    type: fallback
-    proxies:
-      - PROXY-LOAD-BALANCE
-      - PROXY-FAILOVER
+      - BALANCE
+      - BEST
+      - MANUAL
       - DIRECT
-    url: http://cp.cloudflare.com/generate_204
-    expected-status: 204
-    interval: 300
-    tolerance: 150
-    lazy: true
-    hidden: true
 
-  - name: PROXY-LOAD-BALANCE
+  - name: BALANCE
     type: load-balance
     use:
       - pqsubscribe
-    url: http://cp.cloudflare.com/generate_204
-    interval: 300
-    strategy: consistent-hashing
-    expected-status: 204
-    tolerance: 150
-    lazy: true
-    hidden: true
-
-  - name: PROXY-FAILOVER
-    type: fallback
-    use:
-      - pqsubscribe
-    url: http://cp.cloudflare.com/generate_204
-    expected-status: 204
-    interval: 300
-    tolerance: 150
-    lazy: true
-    hidden: true
-
-  - name: PROXY-MANUAL
-    type: select
-    lazy: true
-    use:
-      - pqsubscribe
-
-  - name: GLOBAL
-    type: select
-    hidden: true
     proxies:
-      - PROXY-AUTO
-      - PROXY-MANUAL
-      - PROXY-LOAD-BALANCE
-      - PROXY-FAILOVER
       - DIRECT
+    strategy: consistent-hashing
+    url: http://cp.cloudflare.com/generate_204
+    expected-status: 204
+    interval: 120
+    timeout: 3000
+    tolerance: 200
+    lazy: false
+
+  - name: BEST
+    type: url-test
+    use:
+      - pqsubscribe
+    proxies:
+      - DIRECT
+    url: http://cp.cloudflare.com/generate_204
+    expected-status: 204
+    interval: 120
+    timeout: 3000
+    tolerance: 200
+    lazy: false
+
+  - name: MANUAL
+    type: select
+    use:
+      - pqsubscribe
 
   - name: QUIC
     type: select
@@ -108,19 +154,31 @@ proxy-groups:
       - REJECT
       - PASS
 
+### ═══════════════════════════════════════════════
+###  RULE PROVIDERS
+###
+###  Источники:
+###    MetaCubeX/meta-rules-dat — основной репозиторий geosite/geoip
+###    legiz-ru/mihomo-rule-sets — refilter + ru-bundle
+###    zxc-rv — CDN IP-диапазоны + discord
+###    PentiumB/CDN-RuleSet — amazon IP
+###
+###  Интервал обновления: 86400 (раз в сутки)
+### ═══════════════════════════════════════════════
+
 rule-providers:
-  amazon@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/amazon.mrs }
-  amazon@ipcidr: { <<: *ipcidr, url: https://github.com/PentiumB/CDN-RuleSet/releases/latest/download/amazon.mrs }
+  # ── Приватные сети ──
+  geosite-private: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/private.mrs }
+  geoip-private: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/private.mrs }
+
+  # ── Сервисы ──
   category-ai@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/category-ai-!cn.mrs }
-  cloudflare@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/cloudflare.mrs }
-  cloudflare@ipcidr: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/cloudflare.mrs }
   discord@classical: { <<: *classical, url: https://github.com/zxc-rv/assets/raw/main/rules/discord.list }
   google@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/google.mrs }
   github@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/github.mrs }
   meta@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/facebook.mrs }
   meta@ipcidr: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/facebook.mrs }
   reddit@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/reddit.mrs }
-  refilter@domain: { <<: *domain, url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/domain-rule.mrs }
   spotify@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/spotify.mrs }
   steam@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/steam.mrs }
   telegram@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/telegram.mrs }
@@ -128,60 +186,120 @@ rule-providers:
   twitch@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/twitch.mrs }
   twitter@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/twitter.mrs }
   youtube@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/youtube.mrs }
+
+  # ── CDN / Cloud провайдеры ──
+  amazon@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/amazon.mrs }
+  amazon@ipcidr: { <<: *ipcidr, url: https://github.com/PentiumB/CDN-RuleSet/releases/latest/download/amazon.mrs }
+  akamai@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/akamai.mrs }
+  akamai@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/akamai@ipcidr.mrs }
+  cloudflare@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/cloudflare.mrs }
+  cloudflare@ipcidr: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/cloudflare.mrs }
+  digitalocean@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/digitalocean.mrs }
+  digitalocean@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/digitalocean@ipcidr.mrs }
+  fastly@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/fastly.mrs }
+  fastly@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/fastly@ipcidr.mrs }
+  gcore@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/gcore@ipcidr.mrs }
+  hetzner@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/hetzner.mrs }
+  hetzner@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/hetzner@ipcidr.mrs }
+  oracle@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/oracle.mrs }
+  oracle@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/oracle@ipcidr.mrs }
+  ovh@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/ovh@ipcidr.mrs }
+  scaleway@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/scaleway@ipcidr.mrs }
+  cdn77@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/cdn77@ipcidr.mrs }
+  vultr@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/vultr@ipcidr.mrs }
+
+  # ── RU-специфика ──
+  refilter@domain: { <<: *domain, url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/domain-rule.mrs }
   rubundle@domain: { <<: *domain, url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/ru-bundle/rule.mrs }
   legizdiscord@ipcidr: { <<: *ipcidr, url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/other/discord-voice-ip-list.mrs }
 
+  # ── Пользовательские правила (inline) ──
+  user@classical: # СВОИ ПРАВИЛА
+    type: inline
+    behavior: classical
+    payload:
+      - DOMAIN-SUFFIX,2ip.io
+      - DOMAIN-SUFFIX,dev
+      - DOMAIN-SUFFIX,habr.com
+      - DOMAIN-SUFFIX,org
+      - DOMAIN-SUFFIX,io
+      - DOMAIN-SUFFIX,ai
+      - DOMAIN-SUFFIX,to
+      - DOMAIN-SUFFIX,one
+      - DOMAIN-SUFFIX,sh
+      - DOMAIN-SUFFIX,pro
+      - DOMAIN-SUFFIX,app
+      - DOMAIN-KEYWORD,trae
+      - DOMAIN-KEYWORD,fellow
+      - DOMAIN-KEYWORD,docker
+      - DOMAIN-KEYWORD,discord
+      - DOMAIN-KEYWORD,redhat
+      - DOMAIN-KEYWORD,openshift
+      - DOMAIN-KEYWORD,wago
+
+### ═══════════════════════════════════════════════
+###  RULES
+###
+###  Порядок (приоритет сверху вниз):
+###    1. QUIC блокировка (UDP/443)
+###    2. Приватные сети → DIRECT
+###    3. Свои домены → DIRECT (petqa.ru, huuli.art — избежать петли)
+###    4. Сервисы → PROXY (AI, стриминг, соцсети)
+###    5. CDN/Cloud → PROXY (IP-диапазоны хостеров)
+###    6. RU-фильтры → PROXY
+###    7. Пользовательские → PROXY
+###    8. MATCH → DIRECT (всё остальное напрямую)
+### ═══════════════════════════════════════════════
 
 rules:
+  # ── QUIC блокировка ──
   - AND,((NETWORK,UDP),(DST-PORT,443)),QUIC
-  - DOMAIN-SUFFIX,local,DIRECT
-  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
-  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
-  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
-  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
-  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
-  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
 
-  - DOMAIN-KEYWORD,huuli.art,DIRECT
+  # ── Приватные сети → DIRECT ──
+  - OR,((RULE-SET,geosite-private),(RULE-SET,geoip-private,no-resolve)),DIRECT
+
+  # ── Свои домены → DIRECT (предотвращение петли) ──
   - DOMAIN-KEYWORD,petqa.ru,DIRECT
+  - DOMAIN-KEYWORD,huuli.art,DIRECT
   - DOMAIN-KEYWORD,cp.cloudflare.com,DIRECT
 
-  - DOMAIN,ip.flant.ru,MAIN-MODE
+  # ── Сервисы → PROXY ──
+  - RULE-SET,category-ai@domain,PROXY
+  - RULE-SET,steam@domain,PROXY
+  - RULE-SET,spotify@domain,PROXY
+  - RULE-SET,reddit@domain,PROXY
+  - RULE-SET,youtube@domain,PROXY
+  - RULE-SET,twitch@domain,PROXY
+  - RULE-SET,twitter@domain,PROXY
+  - RULE-SET,discord@classical,PROXY
+  - OR,((RULE-SET,meta@domain),(RULE-SET,meta@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),PROXY
 
-  - DOMAIN-KEYWORD,trae,MAIN-MODE
-  - DOMAIN-KEYWORD,fellow,MAIN-MODE
-  - DOMAIN-KEYWORD,docker,MAIN-MODE
-  - DOMAIN-KEYWORD,discord,MAIN-MODE
-  - DOMAIN-KEYWORD,redhat,MAIN-MODE
-  - DOMAIN-KEYWORD,openshift,MAIN-MODE
+  # ── CDN / Cloud → PROXY ──
+  - OR,((RULE-SET,cloudflare@domain),(RULE-SET,cloudflare@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,amazon@domain),(RULE-SET,amazon@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,akamai@domain),(RULE-SET,akamai@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,digitalocean@domain),(RULE-SET,digitalocean@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,fastly@domain),(RULE-SET,fastly@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,hetzner@domain),(RULE-SET,hetzner@ipcidr,no-resolve)),PROXY
+  - OR,((RULE-SET,oracle@domain),(RULE-SET,oracle@ipcidr,no-resolve)),PROXY
+  - RULE-SET,gcore@ipcidr,PROXY
+  - RULE-SET,cdn77@ipcidr,PROXY
+  - RULE-SET,vultr@ipcidr,PROXY
+  - RULE-SET,scaleway@ipcidr,PROXY
+  - RULE-SET,ovh@ipcidr,PROXY
 
-  - DOMAIN,sites.google.com,DIRECT
+  # ── RU-фильтры → PROXY ──
+  - RULE-SET,refilter@domain,PROXY
+  - RULE-SET,rubundle@domain,PROXY
+  - RULE-SET,legizdiscord@ipcidr,PROXY
 
-  - DOMAIN-SUFFIX,dev,MAIN-MODE
-  - DOMAIN-SUFFIX,org,MAIN-MODE
-  - DOMAIN-SUFFIX,io,MAIN-MODE
-  - DOMAIN-SUFFIX,ai,MAIN-MODE
-  - DOMAIN-SUFFIX,to,MAIN-MODE
-  - DOMAIN-SUFFIX,one,MAIN-MODE
-  - DOMAIN-SUFFIX,sh,MAIN-MODE
-  - DOMAIN-SUFFIX,pro,MAIN-MODE
-  - DOMAIN-SUFFIX,app,MAIN-MODE
+  # ── Пользовательские → PROXY ──
+  - RULE-SET,user@classical,PROXY
 
-  - OR,((DOMAIN-SUFFIX,gql.twitch.tv),(DOMAIN-SUFFIX,usher.ttvnw.net)),MAIN-MODE
-  - RULE-SET,category-ai@domain,MAIN-MODE
-  - RULE-SET,steam@domain,MAIN-MODE
-  - RULE-SET,spotify@domain,MAIN-MODE
-  - RULE-SET,reddit@domain,MAIN-MODE
-  - RULE-SET,youtube@domain,MAIN-MODE
-  - RULE-SET,twitch@domain,MAIN-MODE
-  - RULE-SET,twitter@domain,MAIN-MODE
-  - RULE-SET,discord@classical,MAIN-MODE
-  - OR,((RULE-SET,meta@domain),(RULE-SET,meta@ipcidr,no-resolve)),MAIN-MODE
-  - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),MAIN-MODE
-  - OR,((RULE-SET,cloudflare@domain),(RULE-SET,cloudflare@ipcidr)),MAIN-MODE
-  - OR,((RULE-SET,amazon@domain),(RULE-SET,amazon@ipcidr)),MAIN-MODE
-  - RULE-SET,refilter@domain,MAIN-MODE
-  - RULE-SET,google@domain,MAIN-MODE
-  - RULE-SET,github@domain,MAIN-MODE
+  # ── Google/GitHub ──
+  - RULE-SET,google@domain,PROXY
+  - RULE-SET,github@domain,PROXY
 
+  # ── Всё остальное ──
   - MATCH,DIRECT
