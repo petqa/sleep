@@ -1,11 +1,3 @@
-### ═══════════════════════════════════════════════
-###  MIHOMO — ФИНАЛЬНЫЙ КОНФИГ (РОУТЕР)
-###  Защита от бага "все серверы мертвы":
-###    • BALANCE/BEST содержат DIRECT как fallback
-###    • health-check: lazy: false, interval: 120
-###    • tolerance: 200 — не дёргаться при кратких сбоях
-### ═══════════════════════════════════════════════
-
 log-level: warning
 allow-lan: true
 redir-port: 5000
@@ -77,7 +69,7 @@ dns:
 proxy-providers:
   pqsubscribe:
     type: http
-    url: https://subqqeerr.petqa.ru/secret
+    url: url
     interval: 3600
     proxy: DIRECT
     health-check:
@@ -88,24 +80,6 @@ proxy-providers:
       timeout: 3000
       lazy: false
 
-### ═══════════════════════════════════════════════
-###  PROXY GROUPS
-###
-###  Структура:
-###    PROXY (select) ──► BALANCE ──► прокси + DIRECT (fallback при баге)
-###                   ──► BEST    ──► прокси + DIRECT (fallback при баге)
-###                   ──► MANUAL  ──► ручной выбор
-###                   ──► DIRECT
-###
-###  QUIC (hidden) ──► REJECT (блокировка UDP/443 по умолчанию)
-###                ──► PASS
-###
-###  Защита от бага "все серверы мертвы":
-###    BALANCE и BEST включают DIRECT в конце списка.
-###    Если mihomo ошибочно считает все прокси мёртвыми,
-###    трафик пойдёт напрямую, а не в чёрную дыру.
-### ═══════════════════════════════════════════════
-
 proxy-groups:
   - name: PROXY
     type: select
@@ -113,14 +87,11 @@ proxy-groups:
       - BALANCE
       - BEST
       - MANUAL
-      - DIRECT
 
   - name: BALANCE
     type: load-balance
     use:
       - pqsubscribe
-    proxies:
-      - DIRECT
     strategy: consistent-hashing
     url: http://cp.cloudflare.com/generate_204
     expected-status: 204
@@ -133,8 +104,6 @@ proxy-groups:
     type: url-test
     use:
       - pqsubscribe
-    proxies:
-      - DIRECT
     url: http://cp.cloudflare.com/generate_204
     expected-status: 204
     interval: 120
@@ -154,19 +123,14 @@ proxy-groups:
       - REJECT
       - PASS
 
-### ═══════════════════════════════════════════════
-###  RULE PROVIDERS
-###
-###  Источники:
-###    MetaCubeX/meta-rules-dat — основной репозиторий geosite/geoip
-###    legiz-ru/mihomo-rule-sets — refilter + ru-bundle
-###    zxc-rv — CDN IP-диапазоны + discord
-###    PentiumB/CDN-RuleSet — amazon IP
-###
-###  Интервал обновления: 86400 (раз в сутки)
-### ═══════════════════════════════════════════════
-
 rule-providers:
+  cdn-ip-ranges-all:
+    behavior: ipcidr
+    type: http
+    url: "https://raw.githubusercontent.com/123jjck/cdn-ip-ranges/refs/heads/main/all/all_plain.txt"
+    interval: 86400
+    format: text
+
   # ── Приватные сети ──
   geosite-private: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/private.mrs }
   geoip-private: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/private.mrs }
@@ -186,27 +150,16 @@ rule-providers:
   twitch@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/twitch.mrs }
   twitter@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/twitter.mrs }
   youtube@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/youtube.mrs }
+  gemini@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/google-gemini.mrs }
 
   # ── CDN / Cloud провайдеры ──
   amazon@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/amazon.mrs }
-  amazon@ipcidr: { <<: *ipcidr, url: https://github.com/PentiumB/CDN-RuleSet/releases/latest/download/amazon.mrs }
   akamai@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/akamai.mrs }
-  akamai@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/akamai@ipcidr.mrs }
   cloudflare@domain: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/cloudflare.mrs }
-  cloudflare@ipcidr: { <<: *ipcidr, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/cloudflare.mrs }
   digitalocean@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/digitalocean.mrs }
-  digitalocean@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/digitalocean@ipcidr.mrs }
   fastly@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/fastly.mrs }
-  fastly@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/fastly@ipcidr.mrs }
-  gcore@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/gcore@ipcidr.mrs }
   hetzner@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/hetzner.mrs }
-  hetzner@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/hetzner@ipcidr.mrs }
   oracle@domain: { <<: *domain, url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/oracle.mrs }
-  oracle@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/oracle@ipcidr.mrs }
-  ovh@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/ovh@ipcidr.mrs }
-  scaleway@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/scaleway@ipcidr.mrs }
-  cdn77@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/cdn77@ipcidr.mrs }
-  vultr@ipcidr: { <<: *ipcidr, url: https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/vultr@ipcidr.mrs }
 
   # ── RU-специфика ──
   refilter@domain: { <<: *domain, url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/domain-rule.mrs }
@@ -229,6 +182,7 @@ rule-providers:
       - DOMAIN-SUFFIX,sh
       - DOMAIN-SUFFIX,pro
       - DOMAIN-SUFFIX,app
+      - DOMAIN-SUFFIX,coinbase
       - DOMAIN-KEYWORD,trae
       - DOMAIN-KEYWORD,fellow
       - DOMAIN-KEYWORD,docker
@@ -236,20 +190,25 @@ rule-providers:
       - DOMAIN-KEYWORD,redhat
       - DOMAIN-KEYWORD,openshift
       - DOMAIN-KEYWORD,wago
-
-### ═══════════════════════════════════════════════
-###  RULES
-###
-###  Порядок (приоритет сверху вниз):
-###    1. QUIC блокировка (UDP/443)
-###    2. Приватные сети → DIRECT
-###    3. Свои домены → DIRECT (petqa.ru, huuli.art — избежать петли)
-###    4. Сервисы → PROXY (AI, стриминг, соцсети)
-###    5. CDN/Cloud → PROXY (IP-диапазоны хостеров)
-###    6. RU-фильтры → PROXY
-###    7. Пользовательские → PROXY
-###    8. MATCH → DIRECT (всё остальное напрямую)
-### ═══════════════════════════════════════════════
+      - DOMAIN-KEYWORD,bybit
+      - DOMAIN-KEYWORD,ijustvibecodedthis
+      - DOMAIN-KEYWORD,intercomcdn
+      - DOMAIN-KEYWORD,stripe
+      - DOMAIN-KEYWORD,cline
+      - DOMAIN-KEYWORD,link
+      - DOMAIN-KEYWORD,cwallet
+      - DOMAIN-KEYWORD,groq
+      - DOMAIN-KEYWORD,volcengine
+      - DOMAIN-KEYWORD,ishosting
+      - DOMAIN-KEYWORD,inferno
+      - DOMAIN-KEYWORD,questionablyepic
+      - DOMAIN-KEYWORD,bloodmallet
+      - DOMAIN-KEYWORD,bentoml
+      - DOMAIN-KEYWORD,datacamp
+      - DOMAIN-KEYWORD,context7
+      - DOMAIN-KEYWORD,universe
+      - DOMAIN-KEYWORD,play2go
+      - DOMAIN-KEYWORD,visualstudio
 
 rules:
   # ── QUIC блокировка ──
@@ -258,13 +217,16 @@ rules:
   # ── Приватные сети → DIRECT ──
   - OR,((RULE-SET,geosite-private),(RULE-SET,geoip-private,no-resolve)),DIRECT
 
-  # ── Свои домены → DIRECT (предотвращение петли) ──
+  # ── Свои домены → DIRECT
+  - DOMAIN-KEYWORD,checker.petqa.ru,PROXY
   - DOMAIN-KEYWORD,petqa.ru,DIRECT
-  - DOMAIN-KEYWORD,huuli.art,DIRECT
   - DOMAIN-KEYWORD,cp.cloudflare.com,DIRECT
+  - DOMAIN-KEYWORD,pally.info,DIRECT
 
   # ── Сервисы → PROXY ──
+  - RULE-SET,cdn-ip-ranges-all,PROXY
   - RULE-SET,category-ai@domain,PROXY
+  - RULE-SET,gemini@domain,PROXY
   - RULE-SET,steam@domain,PROXY
   - RULE-SET,spotify@domain,PROXY
   - RULE-SET,reddit@domain,PROXY
@@ -276,18 +238,13 @@ rules:
   - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),PROXY
 
   # ── CDN / Cloud → PROXY ──
-  - OR,((RULE-SET,cloudflare@domain),(RULE-SET,cloudflare@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,amazon@domain),(RULE-SET,amazon@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,akamai@domain),(RULE-SET,akamai@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,digitalocean@domain),(RULE-SET,digitalocean@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,fastly@domain),(RULE-SET,fastly@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,hetzner@domain),(RULE-SET,hetzner@ipcidr,no-resolve)),PROXY
-  - OR,((RULE-SET,oracle@domain),(RULE-SET,oracle@ipcidr,no-resolve)),PROXY
-  - RULE-SET,gcore@ipcidr,PROXY
-  - RULE-SET,cdn77@ipcidr,PROXY
-  - RULE-SET,vultr@ipcidr,PROXY
-  - RULE-SET,scaleway@ipcidr,PROXY
-  - RULE-SET,ovh@ipcidr,PROXY
+  - RULE-SET,cloudflare@domain,PROXY
+  - RULE-SET,amazon@domain,PROXY
+  - RULE-SET,akamai@domain,PROXY
+  - RULE-SET,digitalocean@domain,PROXY
+  - RULE-SET,fastly@domain,PROXY
+  - RULE-SET,hetzner@domain,PROXY
+  - RULE-SET,oracle@domain,PROXY
 
   # ── RU-фильтры → PROXY ──
   - RULE-SET,refilter@domain,PROXY
