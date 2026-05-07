@@ -1,9 +1,16 @@
 log-level: warning
 allow-lan: true
-redir-port: 5000
-tproxy-port: 5001
 ipv6: true
 mode: rule
+# Proxy Mode: MIXED (TCP via TPROXY port 7894, UDP via TUN)
+tproxy-port: 7894
+tun:
+  enable: true
+  device: clash-tun
+  stack: system
+  auto-route: false
+  auto-redirect: false
+  auto-detect-interface: true
 unified-delay: true
 tcp-concurrent: true
 disable-keep-alive: false
@@ -13,7 +20,12 @@ find-process-mode: off
 geodata-mode: false
 geo-auto-update: false
 global-client-fingerprint: chrome
+global-ua: clash.meta
 external-controller: 0.0.0.0:9090
+external-controller-cors:
+  allow-origins:
+    - "*"
+  allow-private-network: true
 external-ui: ui
 external-ui-url: "https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
 profile:
@@ -22,54 +34,48 @@ profile:
 
 sniffer:
   enable: true
-  force-dns-mapping: true
+  force-dns-mapping: false
   parse-pure-ip: true
+  override-destination: true
   sniff:
     HTTP:
       ports: [80, 8080-8880]
     TLS:
       ports: [443, 8443]
+    QUIC:
+      ports: [443]
+  skip-dst-address:
+    - 224.0.0.0/3
+    - 10.0.0.0/8
+    - 127.0.0.0/8
+    - 100.64.0.0/10
+    - 172.16.0.0/12
+    - 198.18.0.0/15
+    - 169.254.0.0/16
+    - 192.168.0.0/16
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.88.99.0/24
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - fc00::/7
+    - ff00::/8
+    - fe80::/10
+    - ::/127
 
 anchors:
-  a1: &domain { type: http, format: mrs, behavior: domain, interval: 86400 }
-  a2: &ipcidr { type: http, format: mrs, behavior: ipcidr, interval: 86400 }
-  a3: &classical { type: http, format: text, behavior: classical, interval: 86400 }
+  a1: &domain { type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT }
+  a2: &ipcidr { type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT }
+  a3: &classical { type: http, format: text, behavior: classical, interval: 86400, proxy: DIRECT }
   a4: &inline { type: inline, behavior: classical }
 
 dns:
-  enable: true
-  listen: 0.0.0.0:1053
-  ipv6: true
-  cache-algorithm: arc
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  fake-ip-filter:
-    - "*.lan"
-    - "*.local"
-    - "+.local"
-    - "+.stun.*.*"
-    - "+.stun.*.*.*"
-    - "+.stun.*.*.*.*"
-    - "*.msftconnecttest.com"
-    - "*.msftncsi.com"
-    - "+.srv.nintendo.net"
-    - "+.stun.playstation.net"
-    - "+.xboxlive.com"
-    - "+.pool.ntp.org"
-    - "localhost.ptlogin2.qq.com"
-  default-nameserver:
-    - 8.8.8.8
-    - 1.1.1.1
-  proxy-server-nameserver:
-    - https://8.8.8.8/dns-query
-    - https://1.1.1.1/dns-query
-  nameserver:
-    - https://dns.petqa.ru/dns-query
+  enable: false
 
 proxy-providers:
   pqsubscribe:
     type: http
-    url: url
+    url: https://url
     interval: 3600
     proxy: DIRECT
     health-check:
@@ -130,6 +136,7 @@ rule-providers:
     url: "https://raw.githubusercontent.com/123jjck/cdn-ip-ranges/refs/heads/main/all/all_plain.txt"
     interval: 86400
     format: text
+    proxy: DIRECT
 
   # ── Приватные сети ──
   geosite-private: { <<: *domain, url: https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/private.mrs }
@@ -172,17 +179,8 @@ rule-providers:
     behavior: classical
     payload:
       - DOMAIN-SUFFIX,2ip.io
-      - DOMAIN-SUFFIX,dev
       - DOMAIN-SUFFIX,habr.com
-      - DOMAIN-SUFFIX,org
-      - DOMAIN-SUFFIX,io
-      - DOMAIN-SUFFIX,ai
-      - DOMAIN-SUFFIX,to
-      - DOMAIN-SUFFIX,one
-      - DOMAIN-SUFFIX,sh
-      - DOMAIN-SUFFIX,pro
-      - DOMAIN-SUFFIX,app
-      - DOMAIN-SUFFIX,coinbase
+      - DOMAIN-SUFFIX,coinbase.com
       - DOMAIN-KEYWORD,trae
       - DOMAIN-KEYWORD,fellow
       - DOMAIN-KEYWORD,docker
@@ -195,7 +193,6 @@ rule-providers:
       - DOMAIN-KEYWORD,intercomcdn
       - DOMAIN-KEYWORD,stripe
       - DOMAIN-KEYWORD,cline
-      - DOMAIN-KEYWORD,link
       - DOMAIN-KEYWORD,cwallet
       - DOMAIN-KEYWORD,groq
       - DOMAIN-KEYWORD,volcengine
@@ -210,21 +207,34 @@ rule-providers:
       - DOMAIN-KEYWORD,play2go
       - DOMAIN-KEYWORD,visualstudio
 
+sub-rules:
+  selective-direct:
+    - OR,((RULE-SET,geosite-private),(RULE-SET,geoip-private,no-resolve)),DIRECT
+    - DOMAIN-SUFFIX,su,DIRECT
+    - DOMAIN-SUFFIX,ru,DIRECT
+    - MATCH,PROXY
+
 rules:
-  # ── QUIC блокировка ──
-  - AND,((NETWORK,UDP),(DST-PORT,443)),QUIC
+  - SUB-RULE,(SRC-IP-CIDR,10.0.100.114/32),selective-direct
+  - SUB-RULE,(SRC-IP-CIDR,10.0.100.109/32),selective-direct
 
   # ── Приватные сети → DIRECT ──
   - OR,((RULE-SET,geosite-private),(RULE-SET,geoip-private,no-resolve)),DIRECT
 
+  # ── IPv6 → REJECT-DROP (остальной вне fake-ip) ──
+  - IP-CIDR6,::/0,REJECT-DROP,no-resolve
+
+  # ── QUIC блокировка ──
+  - AND,((NETWORK,UDP),(DST-PORT,443)),QUIC
+
   # ── Свои домены → DIRECT
-  - DOMAIN-KEYWORD,checker.petqa.ru,PROXY
-  - DOMAIN-KEYWORD,petqa.ru,DIRECT
-  - DOMAIN-KEYWORD,cp.cloudflare.com,DIRECT
-  - DOMAIN-KEYWORD,pally.info,DIRECT
+  - DOMAIN-SUFFIX,checker.petqa.ru,PROXY
+  - DOMAIN-SUFFIX,petqa.ru,DIRECT
+  - DOMAIN-SUFFIX,cp.cloudflare.com,DIRECT
+  - DOMAIN-SUFFIX,pally.info,DIRECT
 
   # ── Сервисы → PROXY ──
-  - RULE-SET,cdn-ip-ranges-all,PROXY
+  - RULE-SET,cdn-ip-ranges-all,PROXY,no-resolve
   - RULE-SET,category-ai@domain,PROXY
   - RULE-SET,gemini@domain,PROXY
   - RULE-SET,steam@domain,PROXY
@@ -249,7 +259,7 @@ rules:
   # ── RU-фильтры → PROXY ──
   - RULE-SET,refilter@domain,PROXY
   - RULE-SET,rubundle@domain,PROXY
-  - RULE-SET,legizdiscord@ipcidr,PROXY
+  - RULE-SET,legizdiscord@ipcidr,PROXY,no-resolve
 
   # ── Пользовательские → PROXY ──
   - RULE-SET,user@classical,PROXY
