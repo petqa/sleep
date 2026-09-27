@@ -1,0 +1,305 @@
+# ============================================================
+#  Mihomo config for Keenetic + XKeen (jameszeroX/XKeen)
+#  Путь: /opt/etc/mihomo/config.yaml   (mihomo_conf_dir)
+#  Модель: всё через VPN, RU/BY → DIRECT (roscomvpn sets)
+#  Вариант БЕЗ ЛАБЫ: нет пула SS-нод, групп LAB* и правил на лабу.
+#  Полный вариант с лабой: keenetic-xkeen.yaml
+#  Тест:  mihomo -d /opt/etc/mihomo -t
+# ============================================================
+
+mode: rule
+log-level: error
+
+# ── Порты интерцепта ──
+# XKeen НЕ зашит на конкретные порты: 04_register_init.sh читает их отсюда через
+# yq (.redir-port / .tproxy-port), см. get_port_redirect()/get_port_tproxy().
+# Оба порта заданы → XKeen поднимается в режиме Hybrid: TCP через REDIRECT
+# (redir-port), UDP через TPROXY (tproxy-port). Дефолт шаблона XKeen: 1181/1182;
+# если `xkeen -tp` покажет конфликт по 5000/5001, просто поменяй здесь.
+redir-port: 5000
+tproxy-port: 5001
+
+# ОБЯЗАТЕЛЬНО 255: XKeen проверяет `.["routing-mark"] == 255` (validate_routing_mark)
+# и ставит в OUTPUT правило `-m mark --mark 255 -j RETURN`: это защита от петли.
+# НЕ добавляй второй routing-mark для PBR: дубликат ключа = ошибка YAML,
+# а другое значение = петля трафика. PBR-мark из `xkeen -pbr codes` задаётся
+# per-proxy/через override провайдера, а не глобально.
+routing-mark: 255
+
+# RU-исключения XKeen делает на firewall (ipset ru_exclude_ipv4/ipv6), НО
+# domain-routing (geosite) всё равно нужен в mihomo: ipset ловит только по IP.
+allow-lan: true
+unified-delay: true
+tcp-concurrent: true
+# fingerprint (firefox/chrome) ставь в самой ноде подписки (client-fingerprint:
+# per-proxy). Top-level global-client-fingerprint УДАЛЁН в mihomo Meta
+# (config.go: "The `global-client-fingerprint` configuration is removed").
+
+# ── Низкие ресурсы entware (1024 fd на процесс, mips/arm64) ──
+# memconservative влияет только на загрузку geoip.dat/geosite.dat. Здесь правила
+# только на .mrs rule-providers, geodata не грузится вообще → строка no-op,
+# оставлена на случай появления GEOIP/GEOSITE-правил.
+geodata-loader: memconservative
+# process matching на роутере не работает (трафик форвардится) и ест CPU
+find-process-mode: off
+# keepalive пореже: меньше wakeups/CPU на слабом железе
+keep-alive-idle: 600
+keep-alive-interval: 15
+
+# IPv6: XKeen по умолчанию ipv6_support=on и настраивает ip6tables, т.е. v6 тоже
+# заворачивается в mihomo. Если рубишь v6 (`xkeen -ipv6`), поставь false здесь
+# и раскомментируй REJECT-DROP на ::/0 в rules (иначе часть v6 уйдёт в обход).
+ipv6: true
+
+external-controller: 0.0.0.0:9090
+external-ui: ./ui
+external-ui-url: "https://github.com/MetaCubeX/metacubexd/releases/latest/download/compressed-dist.tgz"
+
+profile:
+  store-selected: true
+
+# DNS: роутер = резолвер. Чтобы domain-routing работал не только на sniffer,
+# заверни резолвер роутера на mihomo: Keenetic CLI `opkg dns-override`
+# + `ip name-server 127.0.0.1 1153`, либо AdGuard Home upstream 127.0.0.1:1153.
+# redir-host (не fake-ip): DNS отдаёт реальный IP → IP-правила (direct-ips) живые.
+# Split: RU → Яндекс (низкий пинг, ТСПУ-устойчив), proxy → Google/Cloudflare по VPN.
+dns:
+  enable: true
+  listen: 0.0.0.0:1153
+  ipv6: false
+  enhanced-mode: redir-host
+  # меньше RAM на слабом роутере (дефолт 4096)
+  cache-max-size: 2048
+  # DoH по IP-литералу, а не плейн :53: переживает провайдеров, которые
+  # перехватывают/режут 53-й порт наружу
+  default-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  proxy-server-nameserver:
+    - https://77.88.8.8/dns-query
+  direct-nameserver:
+    - https://77.88.8.8/dns-query
+  # direct-nameserver тоже уважает nameserver-policy ниже
+  direct-nameserver-follow-policy: true
+  # RU-домены резолвим Яндексом СРАЗУ, не гоняя запрос в Google по VPN
+  nameserver-policy:
+    "rule-set:private-domains,category-ru,whitelist": "https://77.88.8.8/dns-query"
+    # Инфраструктура самого mihomo (подписка, CDN правил) обязана резолвиться БЕЗ
+    # прокси, иначе дедлок при старте: нет DNS → нет подписки → нет нод → нет DNS.
+    "+.petqa.ru,+.jsdelivr.net,+.githubusercontent.com": "https://77.88.8.8/dns-query"
+  nameserver:
+    - https://8.8.8.8/dns-query#PROXY
+    - https://1.1.1.1/dns-query#PROXY
+
+sniffer:
+  enable: true
+  # На роутере клиенты резолвят сами → mihomo видит только IP.
+  # Sniffer вытаскивает домен из SNI/Host → работает domain-routing.
+  parse-pure-ip: true
+  # Задано явно, а не наследованием: дефолт RawSniffer.OverrideDest = true
+  # (config.go), и с 1.19.30 политика берётся у СРАБОТАВШЕГО сниффера, а порядок
+  # детерминирован: sniffer.List = TLS → HTTP → QUIC. У нас диапазоны
+  # пересекаются (8443 есть и в TLS, и внутри 8080-8880), так что теперь на 8443
+  # первым пробуется TLS и берётся его политика.
+  # true = после сниффа назначение подменяется доменом и переразрешается своим
+  # DNS, т.е. DIRECT идёт на IP от Яндекса из direct-nameserver. Апстрим
+  # roscomvpn ставит false (тогда сохраняется IP, который выбрал клиент).
+  override-destination: true
+  sniff:
+    TLS:
+      ports: [443, 8443]
+      override-destination: true
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+  skip-domain:
+    - "+.lan"
+    - "+.local"
+    - "+.push.apple.com"
+  # не тратим CPU на снифф внутрисетевого/служебного трафика
+  skip-dst-address:
+    - 224.0.0.0/3
+    - 10.0.0.0/8
+    - 127.0.0.0/8
+    - 100.64.0.0/10
+    - 172.16.0.0/12
+    - 169.254.0.0/16
+    - 192.168.0.0/16
+    - fc00::/7
+    - fe80::/10
+    - ff00::/8
+
+proxy-groups:
+  # BEST (url-test) пинит самую быструю живую ноду, BALANCE размазывает по хешу
+  # назначения. Мёртвые ноды пропускают ОБА: strategyConsistentHashing тоже
+  # проверяет AliveForTestUrl (loadbalance.go), так что это вопрос вкуса:
+  # BEST = минимальный пинг, BALANCE = меньше шансов упереться в лимит одной
+  # ноды + стабильная привязка UDP-сессии к одной ноде.
+  - name: PROXY
+    type: select
+    proxies:
+      - BEST
+      - BALANCE
+      - MANUAL
+
+  # Самая быстрая живая нода по пингу
+  - name: BEST
+    type: url-test
+    # include-all-providers (а не include-all): берём ноды только из подписки.
+    # Если добавишь inline-прокси (как в варианте с лабой), они в пул не попадут.
+    include-all-providers: true
+    tolerance: 150
+    interval: 300
+    url: https://www.gstatic.com/generate_204
+    expected-status: "204"
+    max-failed-times: 3
+
+  # Распределяет коннекты по всем нодам (consistent-hashing)
+  - name: BALANCE
+    type: load-balance
+    include-all-providers: true
+    strategy: consistent-hashing
+    tolerance: 150
+    interval: 300
+    url: https://www.gstatic.com/generate_204
+    expected-status: "204"
+
+  - name: MANUAL
+    type: select
+    include-all-providers: true
+
+# ── Подставь свою подписку ──
+proxy-providers:
+  pqsub:
+    type: http
+    url: "https://sub.example.com/TOKEN"
+    path: ./proxy_providers/pqsub.yaml
+    interval: 3600
+    # UDP на всех нодах подписки: если в подписке у ноды нет `udp: true`,
+    # mihomo молча дропает её UDP. Игры/WebRTC/QUIC на такой ноде мертвы.
+    override:
+      udp: true
+    # если подписка отдаёт «ноды» с остатком трафика/сроком, выкинь их из пула
+    # exclude-filter: "(?i)(traffic|expire|трафик|осталось|истек|сайт|обнов)"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      expected-status: "204"
+
+# roscomvpn: 3 геобазы, минус РКН-списки, минус зарубежный CDN
+anchors:
+  d: &d { type: http, behavior: domain, format: mrs, interval: 86400 }
+  i: &i { type: http, behavior: ipcidr, format: mrs, interval: 86400 }
+
+rule-providers:
+  private-domains: { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/private.mrs", path: ./ruleset/private-domains.mrs, interval: 2592000 }
+  private-ips:     { <<: *i, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/private.mrs",   path: ./ruleset/private-ips.mrs,     interval: 2592000 }
+
+  # RU/BY: домены + IP
+  category-ru:     { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ru.mrs", path: ./ruleset/category-ru.mrs }
+  whitelist:       { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/whitelist.mrs",   path: ./ruleset/whitelist.mrs }
+  direct-ips:      { <<: *i, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/direct.mrs",        path: ./ruleset/direct-ips.mrs }
+  direct-ips-wl:   { <<: *i, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/whitelist.mrs",     path: ./ruleset/direct-ips-wl.mrs }
+
+  # PROXY-override (должны стоять ВЫШЕ direct-сетов, домены пересекаются)
+  github:          { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/github.mrs",      path: ./ruleset/github.mrs }
+  twitch-ads:      { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch-ads.mrs",  path: ./ruleset/twitch-ads.mrs }
+  google-play:     { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/google-play.mrs", path: ./ruleset/google-play.mrs }
+  youtube:         { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/youtube.mrs",     path: ./ruleset/youtube.mrs }
+  telegram:        { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/telegram.mrs",    path: ./ruleset/telegram.mrs }
+
+  # DIRECT: сервисы (пуши/апдейты/экономия трафика ноды)
+  apple:           { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/apple.mrs",       path: ./ruleset/apple.mrs }
+  microsoft:       { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/microsoft.mrs",   path: ./ruleset/microsoft.mrs }
+  pinterest:       { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/pinterest.mrs",   path: ./ruleset/pinterest.mrs }
+  twitch:          { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch.mrs",      path: ./ruleset/twitch.mrs }
+  torrent:         { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/torrent.mrs",     path: ./ruleset/torrent.mrs }
+
+  # DIRECT: игры (пинг + экономия трафика + логины по гео)
+  steam:           { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/steam.mrs",            path: ./ruleset/steam.mrs }
+  epicgames:       { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/epicgames.mrs",        path: ./ruleset/epicgames.mrs }
+  origin:          { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/origin.mrs",           path: ./ruleset/origin.mrs }
+  riot:            { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/riot.mrs",             path: ./ruleset/riot.mrs }
+  escapefromtarkov: { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/escapefromtarkov.mrs", path: ./ruleset/escapefromtarkov.mrs }
+  faceit:          { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/faceit.mrs",           path: ./ruleset/faceit.mrs }
+
+  # Опционально в BLOCK (реклама VK/Mail + телеметрия Windows)
+  # category-ads:  { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ads.mrs", path: ./ruleset/category-ads.mrs }
+  # win-spy:       { <<: *d, url: "https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/win-spy.mrs",      path: ./ruleset/win-spy.mrs }
+
+rules:
+  # ── 1. приватки ──
+  - RULE-SET,private-ips,DIRECT,no-resolve
+  - RULE-SET,private-domains,DIRECT
+  # ipv6:false → раскомментируй (если v6 не рубится через `xkeen -ipv6`):
+  # - IP-CIDR6,::/0,REJECT-DROP,no-resolve
+
+  # ── 2. свои серверы (home-lab) и ZeroTier → DIRECT ──
+  # Выше PROXY-сетов намеренно: если у клиента в LAN свой VLESS/SS-клиент до этих
+  # же нод, его коннект к ноде иначе сам уезжает через другую ноду (двойной хоп).
+  # Источник списка: ~/Work/petqa/home-lab/ansible/inventory.yaml
+  - IP-CIDR,194.87.86.151/32,DIRECT,no-resolve    # pq.aivpn
+  - IP-CIDR,176.123.163.193/32,DIRECT,no-resolve  # pq.cloudru-dns (хост подписки)
+  - IP-CIDR,185.252.177.165/32,DIRECT,no-resolve  # pq.1cent
+  - IP-CIDR,94.156.102.83/32,DIRECT,no-resolve    # pq.p2g-de
+  - IP-CIDR,87.121.89.36/32,DIRECT,no-resolve     # pq.p2g-fl
+  - IP-CIDR,45.151.30.16/32,DIRECT,no-resolve     # pq.softlinkbypc
+  - IP-CIDR,178.17.52.27/32,DIRECT,no-resolve     # pq.wai
+  - IP-CIDR,144.31.202.56/32,DIRECT,no-resolve    # pq.zonavps
+  # pq.pve-1 (10.117.10.150) отдельного правила не требует: покрыт private-ips
+  - IP-CIDR,10.121.21.0/24,DIRECT,no-resolve      # ZeroTier (внутри 10/8, но явно)
+  - DOMAIN-SUFFIX,petqa.ru,DIRECT                 # свои хосты по именам: lb-*, панель, подписка
+
+  # ── 3. опциональный BLOCK (раскомментируй вместе с rule-providers выше) ──
+  # - RULE-SET,category-ads,REJECT-DROP
+  # - RULE-SET,win-spy,REJECT-DROP
+
+  # ── 4. PROXY-override: строго ДО direct-сетов ──
+  # twitch-ads → PROXY бьёт twitch → DIRECT (иначе реклама и 480p),
+  # github → PROXY бьёт microsoft → DIRECT (домены пересекаются)
+  - RULE-SET,twitch-ads,PROXY
+  - RULE-SET,github,PROXY
+  - RULE-SET,google-play,PROXY
+  - RULE-SET,youtube,PROXY
+  - RULE-SET,telegram,PROXY
+
+  # ── 5. DIRECT: сервисы ──
+  - RULE-SET,apple,DIRECT
+  - RULE-SET,microsoft,DIRECT
+  - RULE-SET,pinterest,DIRECT
+  - RULE-SET,twitch,DIRECT
+  - RULE-SET,torrent,DIRECT
+
+  # ── 6. DIRECT: игры ──
+  - RULE-SET,steam,DIRECT
+  - RULE-SET,epicgames,DIRECT
+  - RULE-SET,origin,DIRECT
+  - RULE-SET,riot,DIRECT
+  - RULE-SET,escapefromtarkov,DIRECT
+  - RULE-SET,faceit,DIRECT
+
+  # ── 7. RU/BY → DIRECT ──
+  - RULE-SET,whitelist,DIRECT
+  - RULE-SET,category-ru,DIRECT
+  - RULE-SET,direct-ips-wl,DIRECT,no-resolve
+  - RULE-SET,direct-ips,DIRECT,no-resolve
+  # Хвост по TLD: только ПОСЛЕ курируемых списков, иначе он затирает
+  # PROXY-сеты и возвращает в DIRECT заблокированные РКН .ru-ресурсы.
+  # Если такие ресурсы нужны через VPN, убери эти три строки.
+  - DOMAIN-SUFFIX,ru,DIRECT
+  - DOMAIN-SUFFIX,xn--p1ai,DIRECT
+  - DOMAIN-SUFFIX,by,DIRECT
+
+  # ── 8. QUIC вниз списка. ВАЖНО: это правило лишь вторая линия, оно НЕ может
+  #    отбить QUIC внятно. В mihomo для UDP ListenPacketContext возвращает
+  #    nopPacketConn и для REJECT, и для REJECT-DROP (adapter/outbound/reject.go),
+  #    то есть пакеты уходят в тишину и клиент висит вместо отката на TCP.
+  #    Ловили живьём на YouTube. Реально блокировать QUIC должен firewall:
+  #      SSClash  → BLOCK_QUIC=true в /opt/clash/settings (nft reject, шлёт ICMP)
+  #      Keenetic → access-list на домашней сети: deny udp any any port eq 443
+  #                 (штатный deny = drop, ICMP не шлёт) ──
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT-DROP
+
+  # ── 9. остальное → VPN ──
+  - MATCH,PROXY
